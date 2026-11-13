@@ -8,6 +8,12 @@
 ![Unit](https://img.shields.io/badge/unit-40%20tests-brightgreen)
 ![Verified on OCI](https://img.shields.io/badge/certified-OCI%20(Always%20Free)-F80000)
 ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
+![Release](https://img.shields.io/badge/release-v1.0.0-blue)
+
+**Release status: `v1.0.0` — Stage 8 complete, public and MIT licensed.**
+The service was deployed and verified on OCI during development, then torn down
+to zero billable resources; `tofu apply` recreates it in ~35 s. Release notes:
+[v1.0.0](https://github.com/kaveh8866/Secure-Secrets-Management-Sandbox/releases/tag/v1.0.0).
 
 A small, auditable secrets service: store credentials encrypted at rest, hand
 them out under scoped bearer tokens, rotate the master key without ever
@@ -100,12 +106,19 @@ the value. Nothing but ciphertext is ever written to disk.
 
 ## 🚀 Quick start
 
+Requirements: Docker 24+ with Compose v2 (verified on Docker 29.9 / Compose
+v5.7), and a free loopback port `8200`.
+
 ```bash
-cp .env.example .env          # mock values: fine locally, replace anywhere real
+cp -n .env.example .env       # mock values: fine locally, replace anywhere real
 docker compose --env-file .env -f docker/docker-compose.yml up -d --build
-docker compose --env-file .env -f docker/docker-compose.yml ps   # (healthy)
-curl -s http://127.0.0.1:8200/healthz
+docker compose --env-file .env -f docker/docker-compose.yml ps   # wait for (healthy)
+curl -s http://127.0.0.1:8200/healthz                             # {"status":"ok",...}
 ```
+
+That is the whole bootstrap: the mock key in `.env.example` opens a fresh vault,
+and on a fresh volume the first write creates `/data/secrets.json` with mode
+`0600`.
 
 ### Initialize master keys
 
@@ -147,7 +160,8 @@ digests and duplicate hashes. Prefixes are segment-aware. Reload with
 ### Test the encryption/decryption loop
 
 ```bash
-export SECRETSD_TOKEN=<root or scoped token>
+# the bootstrap token from .env.example; swap it for your own anywhere real
+export SECRETSD_TOKEN=cg_mock_root_token_change_me
 
 printf '%s' '{"user":"app","password":"example"}' | \
   docker exec -i -e SECRETSD_TOKEN="$SECRETSD_TOKEN" cg-secretsd \
@@ -157,7 +171,11 @@ printf '%s' '{"user":"app","password":"example"}' | \
 docker exec -e SECRETSD_TOKEN="$SECRETSD_TOKEN" cg-secretsd \
   python -m secretsd.cli get app/db/credentials --raw
 docker exec -e SECRETSD_TOKEN="$SECRETSD_TOKEN" cg-secretsd python -m secretsd.cli list
+# app/db/credentials\tv1\t<timestamp>
 ```
+
+If the container is still reporting `(health: starting)`, wait a few seconds —
+the healthcheck has a 5 s start period.
 
 Render a `0600` env file for a consumer (refuses multiline values, which would
 corrupt a `.env`; use `--format json` for those):
@@ -167,16 +185,27 @@ docker exec -e SECRETSD_TOKEN="$SECRETSD_TOKEN" cg-secretsd \
   python -m secretsd.cli export --format env --prefix app/ci --out /tmp/app.env
 ```
 
-Verify encryption at rest yourself:
+Verify encryption at rest yourself — store a value with a marker that appears
+nowhere else (not even in a secret name), then grep the vault for it:
 
 ```bash
+printf '%s' 'pw-do-not-store-me-9f42' | \
+  docker exec -i -e SECRETSD_TOKEN="$SECRETSD_TOKEN" cg-secretsd \
+  python -m secretsd.cli put app/quickstart/canary
+
 docker exec -i cg-secretsd python - <<'PY'
 import json
 raw = open("/data/secrets.json").read()
-print("plaintext present:", "example" in raw)   # expect False
+print("plaintext canary in vault:", "pw-do-not-store-me-9f42" in raw)  # expect False
 print("envelopes:", sorted(json.loads(raw)["records"]))
 PY
+
+docker exec -e SECRETSD_TOKEN="$SECRETSD_TOKEN" cg-secretsd \
+  python -m secretsd.cli rm app/quickstart/canary
 ```
+
+Searching for a common word is a false-positive trap: the record *name*
+`shared/tls/example_key` contains "example" even though no value does.
 
 Full suites:
 
@@ -388,11 +417,33 @@ Notes and caveats:
 | 5 | Live OCI deployment and verification | ✅ 6 resources, 25/25 live, `docs/stage-5-verification.txt` |
 | 6 | Teardown to zero billable resources | ✅ 6 destroyed, instance `TERMINATED`, `docs/stage-6-teardown.txt` |
 | 7 | Security audit, README, cost model | ✅ `docs/stage-7-security-audit.txt` |
-| 8 | Release and portfolio certification | ⬜ |
+| 8 | Release and portfolio certification | ✅ `v1.0.0` tagged on `8bb0822`, public repo, MIT license, vault certified |
 
 Every claim above is backed by a transcript in [`docs/`](docs/): what ran, what
 it printed, and what remained unverified. Stages that were not executed in a
 cloud are labelled local; the OCI deployment was real, and so was its teardown.
+
+---
+
+## 🔮 Future Enhancements & Follow-ups
+
+Deliberately out of scope for v1.0.0, ordered by value per unit of complexity:
+
+| Enhancement | Why it matters | Sketch |
+| --- | --- | --- |
+| **Dynamic secret leases** | Static credentials never expire; a lease makes a database user that is created on read and revoked on TTL | `POST /v1/leases` returns `{username, password, expires_at}`; a reaper goroutine/thread revokes on expiry and records a `lease_revoke` audit action |
+| **HashiCorp Vault API compatibility** | Existing clients could point at this service without a rewrite | Implement `GET /v1/kv/data/{path}` and `X-Vault-Token` as an adapter over the current store; keep the native API as the source of truth |
+| **Rotation webhooks** | Rotation is currently a host-side action; downstreams need to know a value changed | Signed `POST` to registered URLs on `write`/`rotate`, with HMAC (`X-Secretsd-Signature`) and bounded retries; secrets only in the payload if the subscriber is explicitly trusted |
+| **KMS / HSM-backed KEK** | Removes the master key from the process environment, the biggest documented limitation | `SECRETSD_KMS=oci|aws|gcp` with `WrapKey`/`UnwrapKey` calls; keep the envelope format unchanged so existing vaults migrate by re-wrap |
+| **TLS and mTLS** | The API is currently plaintext behind network restriction | Terminate at a sidecar, or add `SECRETSD_TLS_CERT/KEY` and optional client-CA verification |
+| **OIDC / workload identity** | Bearer tokens never expire and are shared secrets | Accept short-lived JWTs (SPIFFE or OIDC) and map claims to the same capability model |
+| **Replication and signed revisions** | Single node, no rollback detection | Append a hash-chained revision log; replicate the vault file to object storage with a monotonic counter |
+| **Audit export** | Audit is local JSONL only | Stream to SIEM via syslog/OTLP with at-least-once delivery and a stable event id |
+| **CI pipeline** | Verification is manual and local | GitHub Actions running unit tests, `tofu fmt/validate`, and the smoke suite against a compose service |
+| **Real AWS and GCP modules** | Portability is documented but only OCI is implemented | Add `modules/aws` and `modules/gcp` behind the same interface, then update the portability note honestly |
+
+If you pick one: **leases** change the security posture most, and **KMS-backed
+KEK** removes the single most-cited caveat in this README.
 
 ---
 
