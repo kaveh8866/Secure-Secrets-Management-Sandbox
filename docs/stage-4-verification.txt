@@ -1,0 +1,160 @@
+# Stage 4 — local testing and verification
+
+Executed 2026-11-13 on the development host (Windows, Docker 29.8.1, Compose
+v5.5.1). Stack: `cloudguard/secretsd:local` via `docker/docker-compose.yml`,
+published on `127.0.0.1:8200`. Nothing here touches a cloud provider.
+
+```
+================================================================
+ 1. STACK INITIALIZATION
+================================================================
+$ docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+  container: Up 6 seconds (healthy)
+  {"event":"startup","service":"secretsd","bind":"0.0.0.0:8200",
+   "secrets":0,"key_fingerprint":"24af042701ea","actors":3,
+   "api_rotation":false}
+
+$ curl -s http://127.0.0.1:8200/healthz
+  {"service":"secretsd","status":"ok","version":"0.1.0"}
+$ curl -s http://127.0.0.1:8200/readyz
+  200  {"secrets":0,"status":"ready"}
+
+  vault directory: 0700 secretsd:secretsd
+  secrets.json   : 0600 secretsd:secretsd   (created on first write)
+  audit.log      : 0600 secretsd:secretsd
+================================================================
+ 2. MASTER KEY BOOTSTRAP
+================================================================
+  .env holds the mock development key; the service reports only its
+  fingerprint (24af042701ea), never the value.
+
+$ docker run --rm -e SECRETSD_MASTER_KEY=... -e SECRETSD_ROOT_TOKEN=... \
+    cloudguard/secretsd:local --check
+  configuration ok: secrets=0 key_fingerprint=24af042701ea actors=3
+
+$ docker compose ... restart
+  GET /v1/secrets/app/db/credentials -> 200        (key + vault reopen cleanly)
+================================================================
+ 3. STORAGE / RETRIEVAL LOOP
+================================================================
+$ PUT app/db/credentials   (JSON credential blob)      -> 201
+$ PUT app/ci/deploy_token  (single-line token)         -> 201
+$ PUT shared/tls/example_key (multiline PEM-shaped)    -> 201
+
+  retrieval compared by sha256, values never printed:
+    app/db/credentials     v1 bytes= 63  sha256_match=True
+    app/ci/deploy_token    v1 bytes= 15  sha256_match=True
+    shared/tls/example_key v1 bytes= 85  sha256_match=True
+
+  version bump: second PUT -> version 2, GET returns version 2, value exact.
+================================================================
+ 4. INJECTION (export)
+================================================================
+  export --format env --prefix app --out /tmp/app.env
+    wrote 2 variable(s) to /tmp/app.env (mode 0600)
+    file mode 0600, owner secretsd
+    second run without --force:
+      error: /tmp/app.env exists; pass --force to overwrite.
+
+  export --format env  (all secrets, one of them multiline)
+    error: Refusing --format env: multiline value(s) SHARED_TLS_EXAMPLE_KEY
+           cannot be represented in a .env file. Use --format json, or
+           --prefix to exclude them.
+    exit non-zero, no file written.
+
+  note: /tmp is a tmpfs, so an exported file disappears on restart by design.
+================================================================
+ 5. ACCESS CONTROL
+================================================================
+$ SECRETSD_ROOT_TOKEN=... SECRETSD_APP_TOKEN=... bash tests/smoke.sh
+  summary: 25 passed, 0 failed
+
+  no token                             401
+  bad token                            401
+  app token list (capability held)     200
+  app token read allowed path          200
+  app token denied app/admin/root      403
+  app token write                      403
+  app token delete                     403
+  app token rotate                     403   (no rotate capability)
+  segment boundary app/ci-tokens       403   (prefix is not a string prefix)
+  unknown secret                       404
+  POST /v1/secrets                     405
+  malformed JSON                       400
+  non-string value                     400
+  path traversal app/../etc/passwd     400
+  oversized body                       413
+  rotation disabled by default         403
+================================================================
+ 6. AT REST + AUDIT
+================================================================
+  records: 3  [app/ci/deploy_token, app/db/credentials, shared/tls/example_key]
+  plaintext canaries in vault : False
+  plaintext canaries in audit : False
+  envelope fields             : alg, ciphertext, dek_nonce, dek_wrapped,
+                                name, nonce, v
+  vault mode 0600 | audit mode 0600 | data dir 0700
+  audit actions: write 12, read 21, delete 6, rotate 0 (39 lines)
+  canary occurrences in container logs: 0
+================================================================
+ 7. WRONG MASTER KEY
+================================================================
+  one-off container, same volume, different key:
+    container: Up (healthy)          <- process starts, storage load succeeds
+    GET /v1/secrets/app/db/credentials -> 500
+    {"error":"crypto_failure","message":"The secret could not be decrypted."}
+  restart on the correct key -> 200
+================================================================
+ 8. TAMPER DETECTION (throwaway volume)
+================================================================
+  PUT app/tamper/one -> 201, GET -> 200
+  stop, flip one ciphertext byte (AES-GCM tag no longer matches), start
+  GET -> 500 {"error":"crypto_failure", ...}
+  canary in drill logs: 0
+  drill container and volume removed
+================================================================
+ 9. LOAD (low-spec envelope)
+================================================================
+  100 sequential authenticated reads: 100 x 200, 5271 ms wall (52 ms avg)
+  100 reads at 10-way concurrency : 100 x 200, 3467 ms wall
+  steady state: cpu 0.02%, mem 20.06 MiB / 128 MiB (15.67%)
+================================================================
+ 10. RUNTIME POSTURE
+================================================================
+  readonly=true  user=10001:10001  capdrop=[ALL]
+  no-new-privileges:true  pids=64  mem=134217728  cpus=0.25
+  restart=unless-stopped  health=healthy
+  docker exec cg-secretsd sh -c 'touch /etc/probe'
+    touch: cannot touch '/etc/probe': Read-only file system
+================================================================
+```
+
+## Defects found by this stage
+
+1. **`export --format env` corrupted multiline secrets.** A PEM-shaped value was
+   written raw, so its remaining lines became bogus variables
+   (`MIIBcanaryline1=<0 bytes>`, `-----END EXAMPLE KEY-----=<0 bytes>`) and the
+   file was silently invalid. Now the command refuses multiline values, names
+   them, and writes nothing. `--format json` remains lossless for them.
+2. **`export --prefix` used a string prefix.** `--prefix app/ci` also exported
+   `app/ci-tokens/*`. Now segment-aware (`name == prefix or prefix + "/"`),
+   matching the policy engine.
+3. **Variable collisions were silent.** `app/ci/token` and `app/ci-token` both
+   render `APP_CI_TOKEN`; the later value silently won. Now refused.
+4. **Wrong invocation for in-image helpers.** `docker run IMAGE python -c …` is
+   swallowed by the entrypoint (`unrecognized arguments`); `--entrypoint python`
+   is required. Same root cause as the Stage 3 `--generate-key` fix.
+
+Five CLI tests were added (`tests/test_cli.py`), six assertions were added to
+`tests/smoke.sh`, and the unit suite is now 40 tests (1 skipped on Windows: NTFS
+cannot express `0600`, which the container check covers).
+
+## Limitations
+
+- Verification ran on a Windows host over loopback; timings include Docker
+  Desktop's NAT and are not representative of the OCI instance.
+- The service speaks plain HTTP on loopback. TLS termination and network
+  restriction are Stage 5 concerns; do not expose port 8200 publicly.
+- Concurrency was exercised at 10 parallel clients on a 1 GiB-class envelope,
+  not a sustained multi-process load test.
+- No cloud resources were created; `tofu apply` remains Stage 5.

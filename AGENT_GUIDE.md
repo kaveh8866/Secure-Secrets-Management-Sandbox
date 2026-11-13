@@ -170,11 +170,15 @@ docker exec -e SECRETSD_TOKEN="$ROOT" cg-secretsd python -m secretsd.cli list
 
 # render an env file for a consumer (0600, refuses to overwrite)
 docker exec -e SECRETSD_TOKEN="$ROOT" cg-secretsd \
-  python -m secretsd.cli export --format env --out /tmp/app.env
+  python -m secretsd.cli export --format env --prefix app/ci --out /tmp/app.env
 
 # delete
 docker exec -e SECRETSD_TOKEN="$ROOT" cg-secretsd python -m secretsd.cli rm app/ci/github_token
 ```
+
+`--format env` refuses multiline values: a PEM block would otherwise split into
+several bogus variables and produce a half-valid `.env`. Use `--format json` for
+those, or `--prefix` to exclude them. A refused export leaves no file behind.
 
 Raw HTTP equivalent:
 
@@ -221,7 +225,7 @@ Run the whole contract at once:
 
 ```bash
 SECRETSD_ROOT_TOKEN="$ROOT" SECRETSD_APP_TOKEN="$APP" bash tests/smoke.sh
-# summary: 19 passed, 0 failed
+# summary: 25 passed, 0 failed
 ```
 
 ---
@@ -323,6 +327,8 @@ verifies.
 | `touch: cannot touch '/etc/probe': Read-only file system` | expected hardening | nothing to fix |
 | `invalid mount path: 'C'` | Git Bash path conversion | `MSYS_NO_PATHCONV=1` |
 | `docker run … python -m secretsd` → `unrecognized arguments` | entrypoint already runs the module | drop the module part: `IMAGE --generate-key` |
+| one-off helper script fails with `unrecognized arguments` | the entrypoint consumed your `python -c` | put `--entrypoint python` before the image name |
+| `export` → `Refusing --format env: multiline value(s) …` | a secret contains newlines | `--format json`, or `--prefix` to exclude it |
 
 ---
 
@@ -374,8 +380,8 @@ README, not in a commit message, not in a portfolio claim.
 ## 15. Exit criteria for any change
 
 1. `docker build` succeeds.
-2. Unit tests pass (35 tests): see §2 commands in `README.md`.
-3. `bash tests/smoke.sh` → `19 passed, 0 failed`.
+2. Unit tests pass (40 tests, 1 skipped on Windows): `PYTHONPATH=src python -m unittest discover -s tests`.
+3. `bash tests/smoke.sh` → `25 passed, 0 failed`.
 4. `docker inspect` still shows `readonly=true`, `user=10001:10001`, `capdrop=[ALL]`.
 5. Vault contains no plaintext (`plaintext present: False`).
 6. `git status` clean, no `.env`/`tfvars`/state staged.
@@ -393,7 +399,7 @@ tests look.
 | 1 — scaffold, crypto core, API, policies | ✅ verified locally |
 | 2 — OCI infrastructure | ✅ `tofu validate` + `plan: 6 to add` |
 | 3 — agent guide + manual prerequisites (this document) | ✅ complete |
-| 4 — local drills (tamper, rotation, denial, low-spec load) | ⬜ rotation and denial drills verified early; full matrix pending |
+| 4 — local drills (tamper, rotation, denial, low-spec load) | ✅ complete — `docs/stage-4-verification.txt` |
 | 5 — live OCI deployment | ⬜ |
 | 6 — teardown to zero | ⬜ |
 | 7 — security audit and cost table | ⬜ |

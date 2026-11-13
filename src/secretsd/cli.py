@@ -132,22 +132,39 @@ def cmd_rotate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _under_prefix(name: str, prefix: str) -> bool:
+    """Segment-aware prefix match: `app/ci` covers `app/ci/x`, never `app/ci-tokens`."""
+    prefix = prefix.strip("/")
+    return not prefix or name == prefix or name.startswith(prefix + "/")
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     _status, listing = _request("GET", "/v1/secrets")
-    lines: list[str] = []
+    rendered: dict[str, str] = {}
     for entry in listing.get("secrets", []):
-        if args.prefix and not entry["name"].startswith(args.prefix):
+        if not _under_prefix(entry["name"], args.prefix or ""):
             continue
         _status, body = _request("GET", f"/v1/secrets/{_quote(entry['name'])}")
-        lines.append(f"{env_name(entry['name'])}={body.get('value', '')}")
-
-    output = "\n".join(lines) + ("\n" if lines else "")
+        variable = env_name(entry["name"])
+        if variable in rendered:
+            raise CliError(
+                f"Two secrets map to the same variable {variable}; export them separately with --prefix."
+            )
+        rendered[variable] = body.get("value", "")
 
     if args.format == "json":
-        output = json.dumps(
-            {line.split("=", 1)[0]: line.split("=", 1)[1] for line in lines},
-            indent=2,
-        ) + "\n"
+        output = json.dumps(rendered, indent=2) + "\n"
+    else:
+        multiline = sorted(k for k, v in rendered.items() if "\n" in v or "\r" in v)
+        if multiline:
+            # Writing these as-is would split one secret across several lines and
+            # silently produce bogus variables (a PEM block becomes four keys).
+            raise CliError(
+                "Refusing --format env: multiline value(s) "
+                + ", ".join(multiline)
+                + " cannot be represented in a .env file. Use --format json, or --prefix to exclude them."
+            )
+        output = "".join(f"{variable}={value}\n" for variable, value in rendered.items())
 
     if args.out:
         target = Path(args.out)
@@ -157,7 +174,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(output)
         os.chmod(target, 0o600)
-        print(f"wrote {len(lines)} variable(s) to {target} (mode 0600)", file=sys.stderr)
+        print(f"wrote {len(rendered)} variable(s) to {target} (mode 0600)", file=sys.stderr)
     else:
         sys.stdout.write(output)
     return 0

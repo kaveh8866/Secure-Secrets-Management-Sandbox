@@ -220,7 +220,7 @@ docker compose --env-file .env -f docker/docker-compose.yml ps    # (healthy)
 
 ```bash
 SECRETSD_ROOT_TOKEN="$SECRETSD_ROOT_TOKEN" bash tests/smoke.sh
-# summary: 19 passed, 0 failed
+# summary: 25 passed, 0 failed
 ```
 
 - [ ] Confirm the vault is ciphertext with correct permissions:

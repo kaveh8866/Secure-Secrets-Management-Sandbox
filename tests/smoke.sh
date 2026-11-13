@@ -72,6 +72,16 @@ check "segment-aware prefix: app/ci-tokens denied" 403 "$(code -H "Authorization
 
 # --- protocol edges ---------------------------------------------------------
 check "POST /v1/secrets" 405 "$(code -X POST -H "Authorization: Bearer $ROOT" "$BASE/v1/secrets")"
+check "HEAD /healthz" 200 "$(code -I "$BASE/healthz")"
+check "GET /v1/status with app token" 200 "$(code -H "Authorization: Bearer $APP" "$BASE/v1/status")"
+check "rotate denied for non-rotate token" 403 \
+  "$(code -X POST -H "Authorization: Bearer $APP" -H 'Content-Type: application/json' -d '{"new_master_key":"x"}' "$BASE/v1/rotate")"
+check "malformed JSON rejected" 400 \
+  "$(code -X PUT -H "Authorization: Bearer $ROOT" -H 'Content-Type: application/json' -d 'not-json' "$BASE/v1/secrets/app/ci/badjson")"
+check "path traversal in name rejected" 400 \
+  "$(code -X PUT -H "Authorization: Bearer $ROOT" -H 'Content-Type: application/json' -d '{"value":"x"}' "$BASE/v1/secrets/app%2F..%2Fetc%2Fpasswd")"
+check "non-string value rejected" 400 \
+  "$(code -X PUT -H "Authorization: Bearer $ROOT" -H 'Content-Type: application/json' -d '{"value":1234}' "$BASE/v1/secrets/app/ci/number")"
 check "unknown secret" 404 "$(code -H "Authorization: Bearer $ROOT" "$BASE/v1/secrets/app/does-not-exist")"
 check "rotation disabled by default" 403 \
   "$(code -X POST -H "Authorization: Bearer $ROOT" -H 'Content-Type: application/json' \

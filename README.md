@@ -4,13 +4,14 @@ A containerised secrets service for storing, encrypting, rotating and injecting
 credentials — built to run on a 1 OCPU / 1 GB Always Free instance, with a
 security model that assumes the host is not to be trusted with plaintext at rest.
 
-**Status: Stage 3 complete — operator and agent playbooks written.**
-The service, its container and the OCI infrastructure are built and validated;
-[`AGENT_GUIDE.md`](AGENT_GUIDE.md) now carries a verified execution playbook
-(including a rotation drill) and [`MANUAL_PREREQS.md`](MANUAL_PREREQS.md) the
-human setup checklist. Nothing is deployed yet — `tofu apply` is a Stage 5
-action. Evidence: [`docs/stage-1-verification.txt`](docs/stage-1-verification.txt)
-and [`docs/stage-2-verification.txt`](docs/stage-2-verification.txt).
+**Status: Stage 4 complete — the local test matrix is green; nothing is deployed.**
+Storage/retrieval, access control, at-rest encryption, audit trails, tamper
+detection, wrong-key failure and low-spec load are all verified locally: 25/25
+smoke assertions, 40 unit tests, one flipped ciphertext byte rejected with
+`crypto_failure`. Evidence:
+[`docs/stage-4-verification.txt`](docs/stage-4-verification.txt) (plus
+[stage 1](docs/stage-1-verification.txt) and [stage 2](docs/stage-2-verification.txt)).
+`tofu apply` remains a Stage 5 action.
 
 ---
 
@@ -212,7 +213,7 @@ persistence, `0600` permissions, audit-log hygiene, and the full policy matcher.
 | **1** | Scaffold, container, crypto core, API, policies, git boundary | ✅ this stage |
 | 2 | OCI infrastructure with OpenTofu (VCN, A1.Flex, no public 8200) | ✅ validated — `tofu validate` + `plan: 6 to add` |
 | 3 | Operator runbook and agent guide | ✅ complete — `AGENT_GUIDE.md` + `MANUAL_PREREQS.md`, commands verified |
-| 4 | Local drills: tamper, rotation, policy denial, low-spec load | ⬜ |
+| 4 | Local drills: tamper, rotation, policy denial, low-spec load | ✅ 25/25 smoke, tamper + wrong-key + load verified |
 | 5 | Live deployment and verification over an SSH tunnel | ⬜ |
 | 6 | Teardown to zero billable resources | ⬜ |
 | 7 | Security audit, cost table, final docs | ⬜ |
