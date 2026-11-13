@@ -4,18 +4,21 @@ A containerised secrets service for storing, encrypting, rotating and injecting
 credentials — built to run on a 1 OCPU / 1 GB Always Free instance, with a
 security model that assumes the host is not to be trusted with plaintext at rest.
 
-**Status: Stage 5 complete — deployed and verified on OCI.**
-Six resources applied in `eu-frankfurt-1` (VCN, subnet, gateway, route table,
-security list, `VM.Standard.A1.Flex`), master key and tokens generated on the
-host, stack running via compose. Live checks: 25/25 smoke assertions, sha256
-identical store/retrieve, `403` outside policy scope, ciphertext-only vault
-(`0600`), value-free audit, restart persistence, 0 credential strings in logs.
-Evidence: [`docs/stage-5-verification.txt`](docs/stage-5-verification.txt) (plus
-[stage 4](docs/stage-4-verification.txt), [stage 1](docs/stage-1-verification.txt)
-and [stage 2](docs/stage-2-verification.txt)).
+**Status: Stage 6 complete — deployed, verified, and torn down to zero.**
+Six resources were applied in `eu-frankfurt-1` (VCN, subnet, gateway, route
+table, security list, `VM.Standard.A1.Flex`), the stack ran with credentials
+generated on the host, and the deployment was verified live: 25/25 smoke
+assertions, sha256-identical store/retrieve, `403` outside policy scope,
+ciphertext-only vault (`0600`), value-free audit, restart persistence, 0
+credential strings in logs. The infrastructure was then destroyed at the
+operator's request — the instance is `TERMINATED`, every network object returns
+`404`, and the project has no live billable footprint.
 
-**Live endpoint:** `http://79.76.119.212:8200` — ingress restricted to the
-operator `/32` on 22 and 8200, HTTP only (no TLS termination yet).
+Evidence: [stage 5 deployment](docs/stage-5-verification.txt),
+[stage 6 teardown](docs/stage-6-teardown.txt), plus
+[stage 4](docs/stage-4-verification.txt), [stage 1](docs/stage-1-verification.txt)
+and [stage 2](docs/stage-2-verification.txt). Re-deploying costs one
+`tofu apply`; `terraform.tfvars` is preserved locally and gitignored.
 
 ---
 
@@ -219,7 +222,7 @@ persistence, `0600` permissions, audit-log hygiene, and the full policy matcher.
 | 3 | Operator runbook and agent guide | ✅ complete — `AGENT_GUIDE.md` + `MANUAL_PREREQS.md`, commands verified |
 | 4 | Local drills: tamper, rotation, policy denial, low-spec load | ✅ 25/25 smoke, tamper + wrong-key + load verified |
 | 5 | Live OCI deployment and verification | ✅ 6 resources, 25/25 live, `docs/stage-5-verification.txt` |
-| 6 | Teardown to zero billable resources | ⬜ |
+| 6 | Teardown to zero billable resources | ✅ 6 destroyed, instance `TERMINATED`, network `404` |
 | 7 | Security audit, cost table, final docs | ⬜ |
 | 8 | MIT license, publish, vault certification | ⬜ |
 

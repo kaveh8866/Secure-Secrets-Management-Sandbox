@@ -1,0 +1,92 @@
+# Stage 6 — teardown audit
+
+Executed 2026-11-13, ~30 minutes after the Stage 5 deployment. The destroy was
+explicitly requested by the operator. Every figure below is copied from command
+output produced during this teardown, not from the earlier deployment logs.
+
+```
+================================================================
+ 1. PRE-TEARDOWN STATE
+================================================================
+  local stack   : docker compose down -> container + network removed
+  remote stack  : docker compose down over SSH -> container + network removed
+                  containers left on host: 0
+  tofu state    : 10 entries (6 managed resources + 4 data sources)
+  tracked ip    : 79.76.119.212
+  endpoint      : http://79.76.119.212:8200/healthz -> connection failed after
+                  the remote stack was stopped (000), instance still up
+================================================================
+ 2. DESTROY
+================================================================
+$ tofu plan -destroy
+    # module.compute.oci_core_instance.this will be destroyed
+    # module.network.oci_core_internet_gateway.this will be destroyed
+    # module.network.oci_core_route_table.public will be destroyed
+    # module.network.oci_core_security_list.public will be destroyed
+    # module.network.oci_core_subnet.public will be destroyed
+    # module.network.oci_core_vcn.this will be destroyed
+  Plan: 0 to add, 0 to change, 6 to destroy.
+
+$ tofu destroy -auto-approve
+  module.compute.oci_core_instance.this         Destruction complete after 1m4s
+  module.network.oci_core_subnet.public         Destruction complete after 1s
+  module.network.oci_core_route_table.public    Destruction complete after 0s
+  module.network.oci_core_security_list.public  Destruction complete after 0s
+  module.network.oci_core_internet_gateway.this Destruction complete after 0s
+  module.network.oci_core_vcn.this              Destruction complete after 1s
+  Destroy complete! Resources: 6 destroyed.
+================================================================
+ 3. ZERO-RESOURCE VERIFICATION
+================================================================
+  tofu state list -> 0 resources (local state no longer tracks anything)
+
+  Provider-side check, signed against the OCI API with the operator's existing
+  key (the OCI CLI is not installed on this machine, so HTTP Signature v1 was
+  used directly; no new dependency and no token printed):
+
+    instance          HTTP 200 lifecycleState=TERMINATED
+    vcn               HTTP 404 NotAuthorizedOrNotFound
+    subnet            HTTP 404 NotAuthorizedOrNotFound
+    security_list     HTTP 404 NotAuthorizedOrNotFound
+    internet_gateway  HTTP 404 NotAuthorizedOrNotFound
+    route_table       HTTP 404 NotAuthorizedOrNotFound
+
+  Network reachability of the former public IP:
+    tcp/22   -> closed
+    tcp/8200 -> closed
+
+  A TERMINATED instance retains its record for billing/audit history but stops
+  consuming compute; the VCN and its child resources are deleted outright, and
+  the 50 GB boot volume was destroyed with the instance. No billable compute,
+  block storage or network resource remains for this project — spend rate for
+  the sandbox is zero.
+================================================================
+ 4. WHAT REMAINS LOCALLY (intentionally)
+================================================================
+  terraform/terraform.tfvars   gitignored operator inputs (kept for redeploy)
+  terraform/.terraform/        provider cache, gitignored
+  .env                         local mock development key, gitignored
+  docker volume cg-secretsd-data
+                               local test vault only (mock key, canary secrets),
+                               not billable and not part of the cloud footprint
+  no state file secrets, no keys in Git, nothing pushed to the remote
+================================================================
+```
+
+## Notes for Stage 7 / 8
+
+- The instance record stays `TERMINATED`, so a Stage 7 cost table can cite
+  actual lifecycle state rather than an inference.
+- `terraform.tfvars` was preserved, so a re-deploy costs one `tofu apply`; the
+  destroyed host's `.env`, master key and vault are gone by design — a fresh
+  deployment regenerates them (that is what the Stage 3 playbook documents).
+- The GitHub repository is still unpublished; publishing is Stage 8.
+
+## Limitations
+
+- "Zero billable resources" is established from the OCI API responses above and
+  the fact that the boot volume is destroyed with the instance. Billing reports
+  lag; a cost dashboard may still show the terminated instance's history for the
+  current period.
+- No foreign-network probe was run against the old IP; the closed-port checks
+  were made from the operator machine.

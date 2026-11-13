@@ -379,7 +379,11 @@ PY
 ```
 
 Teardown: `tofu destroy -auto-approve`, then confirm with `tofu state list`
-(empty) and a provider-side check — the same discipline as Project 05.
+(empty) and a provider-side check — the same discipline as Project 05. Measured:
+state 10 entries -> 0, six resources destroyed (instance 1m4s), instance
+`lifecycleState=TERMINATED`, every network object `404 NotAuthorizedOrNotFound`,
+former public IP closed on 22 and 8200. Without the OCI CLI, signed GETs against
+`iaas.<region>.oraclecloud.com` (HTTP Signature v1) give the same answer.
 
 ---
 
@@ -422,6 +426,6 @@ tests look.
 | 3 — agent guide + manual prerequisites (this document) | ✅ complete |
 | 4 — local drills (tamper, rotation, denial, low-spec load) | ✅ complete — `docs/stage-4-verification.txt` |
 | 5 — live OCI deployment | ✅ 6 resources, 25/25 live, `docs/stage-5-verification.txt` |
-| 6 — teardown to zero | ⬜ |
+| 6 — teardown to zero | ✅ 6 destroyed, instance `TERMINATED`, `docs/stage-6-teardown.txt` |
 | 7 — security audit and cost table | ⬜ |
 | 8 — release and vault certification | ⬜ |
