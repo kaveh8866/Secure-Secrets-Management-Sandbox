@@ -74,7 +74,7 @@ output "deploy_next_step" {
     2. git clone https://github.com/kaveh8866/Secure-Secrets-Management-Sandbox.git
     3. cd Secure-Secrets-Management-Sandbox && cp .env.example .env
        # generate the master key ON the host and keep it out of Git:
-       #   docker run --rm cloudguard/secretsd:local python -m secretsd --generate-key
+       #   docker run --rm cloudguard/secretsd:local --generate-key
     4. set SECRETSD_MASTER_KEY, SECRETSD_ROOT_TOKEN and
        SECRETSD_BIND_ADDRESS=0.0.0.0, SECRETSD_HOST_PORT=${var.api_port} in .env
     5. docker compose --env-file .env -f docker/docker-compose.yml up -d --build

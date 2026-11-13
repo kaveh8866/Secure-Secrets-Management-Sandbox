@@ -4,12 +4,13 @@ A containerised secrets service for storing, encrypting, rotating and injecting
 credentials — built to run on a 1 OCPU / 1 GB Always Free instance, with a
 security model that assumes the host is not to be trusted with plaintext at rest.
 
-**Status: Stage 2 complete — infrastructure defined and validated.**
-The container, crypto core, API and policies are built (Stage 1); `terraform/`
-now provisions the OCI host that will run them, with a two-rule ingress and a
-plan of 6 resources. Nothing is deployed yet — `tofu apply` is a Stage 5 action.
-Evidence: [`docs/stage-1-verification.txt`](docs/stage-1-verification.txt) and
-[`docs/stage-2-verification.txt`](docs/stage-2-verification.txt).
+**Status: Stage 3 complete — operator and agent playbooks written.**
+The service, its container and the OCI infrastructure are built and validated;
+[`AGENT_GUIDE.md`](AGENT_GUIDE.md) now carries a verified execution playbook
+(including a rotation drill) and [`MANUAL_PREREQS.md`](MANUAL_PREREQS.md) the
+human setup checklist. Nothing is deployed yet — `tofu apply` is a Stage 5
+action. Evidence: [`docs/stage-1-verification.txt`](docs/stage-1-verification.txt)
+and [`docs/stage-2-verification.txt`](docs/stage-2-verification.txt).
 
 ---
 
@@ -80,6 +81,8 @@ volume. That separation is the point: a stolen volume is a file of ciphertext.
 │       ├── api.py                 # HTTP surface
 │       ├── cli.py                 # vaultctl
 │       └── __main__.py            # configuration + entrypoint
+├── AGENT_GUIDE.md                 # agent playbook: build, test, rotate, inspect
+├── MANUAL_PREREQS.md              # human checklist: keys, tokens, OCI, pre-flight
 ├── configs/
 │   ├── policies.toml              # sample tokens (hashes) and capabilities
 │   ├── schema/secret.schema.json  # on-disk record schema
@@ -208,7 +211,7 @@ persistence, `0600` permissions, audit-log hygiene, and the full policy matcher.
 | --- | --- | --- |
 | **1** | Scaffold, container, crypto core, API, policies, git boundary | ✅ this stage |
 | 2 | OCI infrastructure with OpenTofu (VCN, A1.Flex, no public 8200) | ✅ validated — `tofu validate` + `plan: 6 to add` |
-| 3 | Operator runbook and agent guide | ✅ (initial version in `AGENT_GUIDE.md`) |
+| 3 | Operator runbook and agent guide | ✅ complete — `AGENT_GUIDE.md` + `MANUAL_PREREQS.md`, commands verified |
 | 4 | Local drills: tamper, rotation, policy denial, low-spec load | ⬜ |
 | 5 | Live deployment and verification over an SSH tunnel | ⬜ |
 | 6 | Teardown to zero billable resources | ⬜ |
