@@ -427,5 +427,5 @@ tests look.
 | 4 — local drills (tamper, rotation, denial, low-spec load) | ✅ complete — `docs/stage-4-verification.txt` |
 | 5 — live OCI deployment | ✅ 6 resources, 25/25 live, `docs/stage-5-verification.txt` |
 | 6 — teardown to zero | ✅ 6 destroyed, instance `TERMINATED`, `docs/stage-6-teardown.txt` |
-| 7 — security audit and cost table | ⬜ |
+| 7 — security audit and cost table | ✅ `docs/stage-7-security-audit.txt`, README cost model |
 | 8 — release and vault certification | ⬜ |

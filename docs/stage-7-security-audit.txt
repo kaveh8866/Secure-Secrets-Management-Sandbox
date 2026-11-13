@@ -1,0 +1,85 @@
+# Stage 7 — security and sanitization audit sign-off
+
+Scope: every file Git tracks in this project (`git ls-files`), the ignore rules
+that decide what *can* be tracked, and the template operators copy into place.
+Executed 2026-11-13 after the Stage 6 teardown.
+
+```
+================================================================
+ 1. SENSITIVE PATHS IN THE INDEX
+================================================================
+$ git ls-files | grep -E '(\.env$|\.env\.|\.pem$|\.key$|\.p12$|\.pfx$|tfvars|tfstate|\.db$|\.sqlite|secrets\.json|audit\.log|/data/)'
+  .env.example                     <- template, placeholders only
+  terraform/terraform.tfvars.example <- template, placeholders only
+  (no live .env, no *.pem/*.key, no *.tfvars, no tfstate, no *.db,
+   no secrets.json, no audit.log, no data/)
+================================================================
+ 2. IGNORE RULES ARE ACTIVE (git check-ignore -v)
+================================================================
+  .gitignore:9:.env                    .env
+  .gitignore:47:*.tfvars               terraform/terraform.tfvars
+  .gitignore:45:*.tfstate              terraform/terraform.tfstate
+  .gitignore:31:data/                  data/secrets.json
+  .gitignore:12:*.pem                  x.pem
+  .gitignore:18:id_ed25519*            id_ed25519
+  .gitignore:23:rclone.conf            rclone.conf
+
+  Also covered: *.key, *.p12, *.pfx, *.crt, id_rsa*, *.kdbx, secrets/, keys/,
+  master-key*, credentials.json, *service-account*.json, *.sqlite*, *.db,
+  vault.json, audit.log, configs/local/, .terraform/, *.tfplan, logs/, *.log,
+  .cloudguard/.
+================================================================
+ 3. TRACKED-CONTENT SECRET SCAN
+================================================================
+Scanned all tracked files for: PEM private-key headers, AWS access-key ids,
+OpenAI-style keys, GitHub tokens, and long OCIDs that are not the infrastructure
+identifiers documented as evidence.
+
+  matches: none
+
+  The only OCIDs in the repository are the VCN/subnet/security-list/instance
+  identifiers published in docs/stage-5-verification.txt and
+  docs/stage-6-teardown.txt as deployment evidence; they identify destroyed or
+  terminated resources and grant no access.
+================================================================
+ 4. TEMPLATE CORRECTNESS
+================================================================
+  .env.example
+    - verified to contain no non-env marker lines (an earlier working-copy read
+      appeared to show a stray `[TEMPLATE]` header; `git log -S` confirms the
+      string never existed in any commit, and the file is unchanged from HEAD).
+    - `docker compose --env-file .env.example ... config --quiet` exits 0, so
+      the template is directly usable for the quick start.
+    - every value is a documented mock or a hyphenated placeholder
+      (`placeholder-not-a-real-ocid`), never a live credential.
+    - documents that exactly one of SECRETSD_MASTER_KEY /
+      SECRETSD_MASTER_KEY_FILE must be set.
+  terraform/terraform.tfvars.example
+    - compartment/tenancy fields are placeholders; the SSH public key field is
+      the only "key" and is public by definition.
+================================================================
+ 5. RUNTIME HYGIENE (recap from Stages 4-6)
+================================================================
+  container: read-only rootfs, uid 10001, cap_drop ALL, no-new-privileges,
+             pids 64, 128 MiB, /tmp tmpfs only
+  vault    : ciphertext only, 0600 in a 0700 directory, atomic writes
+  logs     : access log and audit log contain no values (canary-verified)
+  cloud    : security list allows 22 and 8200 from the operator /32 only;
+             instance destroyed, network 404, spend rate zero
+================================================================
+ 6. RESIDUAL RISK CARRIED INTO STAGE 8
+================================================================
+  - no TLS: the API is plaintext HTTP and relies on network restriction
+  - master key lives in the container environment (host root can read it)
+  - single-node: no replication, no signed revision history, no rollback
+    detection
+  - tokens are bearer credentials with no expiry
+  These are documented in the README's "what this does not protect against"
+  table rather than implied away.
+================================================================
+```
+
+Sign-off: the repository contains no key material, no runtime vault, no state
+file and no live environment file. The two tracked templates are placeholders,
+and the ignore rules that keep it that way are verified by `git check-ignore`
+rather than by inspection.
