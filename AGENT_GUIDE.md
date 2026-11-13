@@ -91,7 +91,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $APP_TOKEN" \
 | Stage | Status |
 | --- | --- |
 | 1 — scaffold, crypto core, API, policies | ✅ verified locally (see `docs/stage-1-verification.txt`) |
-| 2 — OCI infrastructure | ⬜ reserved: `terraform/` |
+| 2 — OCI infrastructure | ✅ verified 2026-11-13 — validate + plan 6 to add (`docs/stage-2-verification.txt`) |
 | 3 — operator docs | ✅ this guide |
 | 4 — local drills | ⬜ |
 | 5 — live deployment | ⬜ |

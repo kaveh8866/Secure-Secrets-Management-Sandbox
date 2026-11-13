@@ -4,10 +4,12 @@ A containerised secrets service for storing, encrypting, rotating and injecting
 credentials — built to run on a 1 OCPU / 1 GB Always Free instance, with a
 security model that assumes the host is not to be trusted with plaintext at rest.
 
-**Status: Stage 1 complete — scaffold, container, API, store and policies.**
-Nothing in this repository calls a cloud provider yet: `terraform/` is reserved
-for Stage 2. Local verification evidence is in
-[`docs/stage-1-verification.txt`](docs/stage-1-verification.txt).
+**Status: Stage 2 complete — infrastructure defined and validated.**
+The container, crypto core, API and policies are built (Stage 1); `terraform/`
+now provisions the OCI host that will run them, with a two-rule ingress and a
+plan of 6 resources. Nothing is deployed yet — `tofu apply` is a Stage 5 action.
+Evidence: [`docs/stage-1-verification.txt`](docs/stage-1-verification.txt) and
+[`docs/stage-2-verification.txt`](docs/stage-2-verification.txt).
 
 ---
 
@@ -82,7 +84,7 @@ volume. That separation is the point: a stolen volume is a file of ciphertext.
 │   ├── policies.toml              # sample tokens (hashes) and capabilities
 │   ├── schema/secret.schema.json  # on-disk record schema
 │   └── samples/                   # illustrative envelope
-├── terraform/                     # reserved for Stage 2 (OCI)
+├── terraform/                     # OCI VCN + A1.Flex; modules/network, modules/compute
 ├── tests/                         # unit tests (stdlib unittest)
 └── docs/                          # verification transcripts
 ```
@@ -205,7 +207,7 @@ persistence, `0600` permissions, audit-log hygiene, and the full policy matcher.
 | Stage | Scope | State |
 | --- | --- | --- |
 | **1** | Scaffold, container, crypto core, API, policies, git boundary | ✅ this stage |
-| 2 | OCI infrastructure with OpenTofu (VCN, A1.Flex, no public 8200) | ⬜ |
+| 2 | OCI infrastructure with OpenTofu (VCN, A1.Flex, no public 8200) | ✅ validated — `tofu validate` + `plan: 6 to add` |
 | 3 | Operator runbook and agent guide | ✅ (initial version in `AGENT_GUIDE.md`) |
 | 4 | Local drills: tamper, rotation, policy denial, low-spec load | ⬜ |
 | 5 | Live deployment and verification over an SSH tunnel | ⬜ |

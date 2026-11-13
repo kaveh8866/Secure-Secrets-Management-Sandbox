@@ -1,0 +1,67 @@
+STAGE 2 VERIFICATION — Secure Secrets Management Sandbox (OpenTofu / OCI)
+recorded 2026-11-13
+
+Toolchain
+  OpenTofu  1.13.9 (local binary, not on PATH)
+  OCI provider  oracle/oci 7.x resolved through .terraform.lock.hcl
+  Region    eu-frankfurt-1, auth via ~/.oci/config profile (no key in state)
+
+1. Formatting
+   $ tofu fmt -recursive terraform/
+   main.tf, outputs.tf rewritten by the formatter (alignment only)
+   $ tofu fmt -check -recursive terraform/   -> exit 0
+
+2. Initialisation
+   $ tofu init
+   provider oracle/oci installed; lock file written
+
+3. Validation
+   $ tofu validate
+   Success! The configuration is valid.
+
+4. Plan
+   $ tofu plan
+   Plan: 6 to add, 0 to change, 0 to destroy.
+
+   resources
+     oci_core_vcn                cloudguard-secrets-dev-vcn
+     oci_core_internet_gateway   cloudguard-secrets-dev-igw
+     oci_core_route_table        (public default route)
+     oci_core_security_list      cloudguard-secrets-dev-sl
+     oci_core_subnet             cloudguard-secrets-dev-public-subnet
+     oci_core_instance           cloudguard-secrets-dev-vm  VM.Standard.A1.Flex
+
+5. Ingress contract, read back from the plan JSON (not from the variables)
+   ingress rules planned: 2
+     22/tcp    source=restricted   SSH administration from the operator network
+     8200/tcp  source=restricted   Secrets API (bearer-token authenticated)
+   ports=[22, 8200]
+   overlaps 80/443/8080: False
+   egress rules: 1 (0.0.0.0/0, OS updates and image pulls)
+   security list present in plan: True
+
+   Both sources are restricted: the module rejects api_allowed_cidr == 0.0.0.0/0
+   at variable validation time, so a permissive tfvars edit fails before apply.
+
+6. Defects found and fixed during this stage
+   a) outputs.tf used ${var.api_port} inside an output `description`. Terraform
+      forbids variables there: "Variables may not be used here." Reworded.
+   b) modules/network had no versions.tf, so `providers = { oci = oci }` failed
+      with "Reference to undefined provider". Added the required_providers block.
+   c) vcn_dns_label was "cloudguardsecrets" (17 chars); the validation rule
+      rejected it at 15. Renamed to "cgsecrets".
+   d) The cloud-init template contained "PermitiRootLogin" (typo). Fixed to
+      PermitRootLogin before any apply could ship a broken sshd drop-in.
+
+7. What was NOT done
+   * No `tofu apply`. Provisioning is Stage 5; this stage only proves the
+     configuration is valid and the plan matches the intended six resources.
+   * No provider-side verification (nothing exists to verify).
+   * terraform.tfvars is local and gitignored; its values were copied from the
+     Project 05 operator file without being printed.
+
+8. Portability
+   Module interfaces are provider-neutral (network exposes subnet_id and
+   ingress_ports; compute consumes subnet_id and returns public_ip). AWS and GCP
+   mappings are documented in terraform/README.md and in file headers; OCI is the
+   only validated target.

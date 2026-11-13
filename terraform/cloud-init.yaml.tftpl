@@ -1,0 +1,73 @@
+#cloud-config
+# =============================================================================
+# Secure Secrets Management Sandbox — first-boot bootstrap (${project_name})
+# =============================================================================
+# Prepares the host and stops there. This file is rendered into instance
+# user-data, which is readable from the metadata service by any process on the
+# host — so it contains **no master key, no root token, no .env and no secret of
+# any kind**. The stack is deployed over SSH, and keys are generated on the host.
+#
+# What it does: Docker Engine + Compose, a daemon config with hardening defaults,
+# an empty application directory, and unattended security upgrades.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - unattended-upgrades
+
+write_files:
+  # Daemon-level hardening so every container started on this host inherits it,
+  # even one started by hand without the compose file.
+  - path: /etc/docker/daemon.json
+    permissions: "0644"
+    content: |
+      {
+        "no-new-privileges": true,
+        "live-restore": true,
+        "userland-proxy": false,
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "2" }
+      }
+
+  - path: /etc/ssh/sshd_config.d/99-cloudguard.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+
+  - path: /etc/motd
+    permissions: "0644"
+    content: |
+      ${project_name} — secrets host
+      The API listens on ${api_port} inside this host only until compose publishes it.
+      Deploy:
+        git clone ${repository}
+        cd Secure-Secrets-Management-Sandbox && cp .env.example .env
+        # generate a master key on the host, never in Git:
+        #   python -m secretsd --generate-key
+        docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+      Never put a credential in user-data: this MOTD and the metadata service are public to the host.
+
+runcmd:
+  - curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+  - sh /tmp/get-docker.sh
+  - usermod -aG docker ubuntu
+  - systemctl enable --now docker
+  - systemctl restart docker
+  - mkdir -p ${install_dir}
+  - chown ubuntu:ubuntu ${install_dir}
+  - chmod 0750 ${install_dir}
+
+  # Security updates without a human in the loop; this host is intentionally
+  # low-touch and holds credentials, so patch latency matters.
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+  - systemctl enable --now unattended-upgrades
+  - systemctl restart ssh
+
+final_message: "${project_name} host ready after $UPTIME seconds"

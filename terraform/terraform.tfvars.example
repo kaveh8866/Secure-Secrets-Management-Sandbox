@@ -1,0 +1,54 @@
+# =============================================================================
+# Secure Secrets Management Sandbox — terraform.tfvars template (OCI)
+# =============================================================================
+# Copy to `terraform.tfvars` (gitignored), fill in your tenancy values, then:
+#   tofu init && tofu fmt -recursive && tofu validate && tofu plan
+#
+# Never commit the filled file: it carries tenancy/compartment OCIDs and the
+# path to your API signing key. The placeholders below use hyphens on purpose so
+# they can never be mistaken for a real OCID.
+
+# --- Identity ----------------------------------------------------------------
+tenancy_ocid     = "ocid1.tenancy.oc1..your-tenancy-placeholder"
+compartment_ocid = "ocid1.compartment.oc1..your-compartment-placeholder"
+region           = "eu-frankfurt-1"
+
+# Auth path 1 (recommended): a profile in ~/.oci/config.
+config_file_profile = "DEFAULT"
+
+# Auth path 2: inline API-key values instead of a profile.
+# user_ocid        = "ocid1.user.oc1..your-user-placeholder"
+# fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+# private_key_path = "C:/Users/you/.oci/oci_api_key.pem"
+
+# --- Access ------------------------------------------------------------------
+# Content of your PUBLIC key (one line starting with ssh-ed25519), not a path.
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample-placeholder-key operator@example.invalid"
+
+# Your egress IP rather than the open internet: `curl -s https://ifconfig.me`
+ssh_allowed_cidr = "203.0.113.10/32"
+
+# The one rule that must never be open. This is the port that hands out
+# credentials; use your own /32, a VPN range, or a bastion subnet.
+api_allowed_cidr = "203.0.113.10/32"
+api_port         = 8200
+
+# --- Network -----------------------------------------------------------------
+vcn_cidr    = "10.6.0.0/16"
+subnet_cidr = "10.6.1.0/24"
+
+# --- Sizing ------------------------------------------------------------------
+# The service is capped at 128 MB / 0.25 CPU and measured at ~20 MB idle, so this
+# is the smallest Always Free A1 shape that still runs Ubuntu + Docker + a build.
+instance_shape       = "VM.Standard.A1.Flex"
+instance_ocpus       = 1
+instance_memory_gbs  = 1
+boot_volume_size_gbs = 50
+
+# Leave null to take the first availability domain; pin AD-2 if A1 capacity is
+# scarce in your region ("Out of host capacity").
+availability_domain = "example:EU-FRANKFURT-1-AD-2"
+
+# --- Naming ------------------------------------------------------------------
+project_name = "cloudguard-secrets"
+environment  = "dev"
