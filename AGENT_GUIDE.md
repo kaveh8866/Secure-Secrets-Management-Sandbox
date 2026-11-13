@@ -342,20 +342,41 @@ tofu plan      # expect: Plan: 6 to add
 tofu apply     # 6 resources, ~35 s
 ```
 
-Then on the host (`ssh ubuntu@$(tofu output -raw instance_public_ip)`):
+Measured on the Stage 5 run: apply finished in 34 s for the instance, 6 resources
+total, cloud-init reached `status: done` after ~170 s (Docker 29.9.3 + Compose
+v5.7.1), host is Ubuntu 24.04 aarch64 with 945 MB RAM.
+
+Then on the host (`ssh ubuntu@$(tofu output -raw instance_public_ip)`). The remote
+checkout is normally transferred rather than cloned while the GitHub repository is
+unpublished, and **never** carries `.env` or `terraform.tfvars`:
 
 ```bash
-git clone https://github.com/kaveh8866/Secure-Secrets-Management-Sandbox.git
-cd Secure-Secrets-Management-Sandbox
+# from the operator machine, secrets excluded
+tar -czf - --exclude=.git --exclude=.env --exclude=terraform/terraform.tfvars \
+  --exclude=terraform/.terraform --exclude='*.tfstate*' --exclude='*.tfplan' --exclude=data . \
+  | ssh ubuntu@<ip> 'rm -rf ~/Secure-Secrets-Management-Sandbox && mkdir -p ~/Secure-Secrets-Management-Sandbox && tar -xzf - -C ~/Secure-Secrets-Management-Sandbox'
+
+cd ~/Secure-Secrets-Management-Sandbox
 docker build -t cloudguard/secretsd:local .
-docker run --rm cloudguard/secretsd:local --generate-key > /tmp/master.key
-#   move that value into .env, then shred the temp file
+docker run --rm cloudguard/secretsd:local --generate-key   # write into .env (0600), never to a tracked file
 printf '%s' 'a-strong-operator-token' | docker run --rm -i cloudguard/secretsd:local --hash-token
+python3 - <<'PY'   # replace both mock digests in configs/policies.toml
+PY
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 Set `SECRETSD_BIND_ADDRESS=0.0.0.0` and `SECRETSD_HOST_PORT=8200` in `.env` only
 when the security list grants `api_allowed_cidr` access. For zero exposure leave
 the bind on loopback and use `ssh -L 8200:127.0.0.1:8200`.
+
+Live verification, from the host (tokens read from `.env`, never printed):
+
+```bash
+SECRETSD_ROOT_TOKEN="$SECRETSD_ROOT_TOKEN" SECRETSD_APP_TOKEN="$SECRETSD_APP_TOKEN" bash tests/smoke.sh
+curl -s http://127.0.0.1:8200/readyz
+docker exec -i cg-secretsd python - <<'PY'   # records, modes, canary scan
+PY
+```
 
 Teardown: `tofu destroy -auto-approve`, then confirm with `tofu state list`
 (empty) and a provider-side check — the same discipline as Project 05.
@@ -400,7 +421,7 @@ tests look.
 | 2 — OCI infrastructure | ✅ `tofu validate` + `plan: 6 to add` |
 | 3 — agent guide + manual prerequisites (this document) | ✅ complete |
 | 4 — local drills (tamper, rotation, denial, low-spec load) | ✅ complete — `docs/stage-4-verification.txt` |
-| 5 — live OCI deployment | ⬜ |
+| 5 — live OCI deployment | ✅ 6 resources, 25/25 live, `docs/stage-5-verification.txt` |
 | 6 — teardown to zero | ⬜ |
 | 7 — security audit and cost table | ⬜ |
 | 8 — release and vault certification | ⬜ |

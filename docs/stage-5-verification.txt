@@ -1,0 +1,139 @@
+# Stage 5 — live OCI deployment and verification
+
+Executed 2026-11-13 against Oracle Cloud Infrastructure, region
+`eu-frankfurt-1`, using the local OCI API key and `terraform/terraform.tfvars`.
+Nothing here is simulated: every line is output from the provisioned host or
+from the OpenTofu state that created it.
+
+```
+================================================================
+ 1. PROVISIONING
+================================================================
+$ tofu init && tofu validate
+  Success! The configuration is valid.
+$ tofu plan -out=p06-stage5.tfplan
+  Plan: 6 to add, 0 to change, 0 to destroy.
+
+  security list (from the saved plan):
+    ingress proto=6 tcp/22   source=80.131.213.122/32
+    ingress proto=6 tcp/8200 source=80.131.213.122/32
+    egress rules: 1
+  instance: VM.Standard.A1.Flex, jiTx:EU-FRANKFURT-1-AD-2, 50 GB boot
+
+$ tofu apply p06-stage5.tfplan
+  module.network.oci_core_vcn.this               Creation complete after 0s
+  module.network.oci_core_internet_gateway.this  Creation complete after 1s
+  module.network.oci_core_security_list.public   Creation complete after 1s
+  module.network.oci_core_route_table.public     Creation complete after 0s
+  module.network.oci_core_subnet.public          Creation complete after 2s
+  module.compute.oci_core_instance.this          Creation complete after 34s
+  Apply complete! Resources: 6 added, 0 changed, 0 destroyed.
+
+  instance_id : ocid1.instance.oc1.eu-frankfurt-1.antheljr2aepjfacpjq7jbcnyulckwrtjxw24eeqvvqgdak4namjhuujg5fa
+  public_ip   : 79.76.119.212
+  private_ip  : 10.6.1.75
+  vcn         : 10.6.0.0/16   subnet: 10.6.1.0/24 (public, IG attached)
+================================================================
+ 2. HOST BOOTSTRAP (cloud-init)
+================================================================
+  cloud-init  : status: done (after ~170 s)
+  os          : Ubuntu 24.04.5 LTS, aarch64
+  resources   : 1 vCPU, 945 MB RAM, 48 GB disk (3.5 GB used)
+  docker      : 29.9.3, compose v5.7.1, daemon active
+  user groups : ubuntu … docker          (no root login, password auth off)
+================================================================
+ 3. REMOTE DEPLOYMENT
+================================================================
+  Transfer: tar over SSH, excluding .git, .env, terraform.tfvars,
+            .terraform, *.tfstate*, *.tfplan and data/ — 56 files.
+  Verified on the host before build:
+    absent (good): .env
+    absent (good): terraform/terraform.tfvars
+    absent (good): data/secrets.json
+
+  Credentials generated ON THE HOST, never transmitted or printed:
+    master key   : 43-char base64url, fingerprint a3221f2a7e38
+    root token   : random, .env only (mode 600)
+    ci token     : random, hash written into configs/policies.toml
+    rotator      : random, hash written into configs/policies.toml
+
+  image        : 224 MB (aarch64 build of the same Dockerfile)
+  startup      : {"event":"startup","service":"secretsd","bind":"0.0.0.0:8200",
+                  "secrets":0,"key_fingerprint":"a3221f2a7e38","actors":3,
+                  "api_rotation":false}
+================================================================
+ 4. LIVE VERIFICATION
+================================================================
+  From the workstation (egress 80.131.213.122, the allowed /32):
+    GET /healthz                 -> 200
+    GET /v1/secrets (no token)   -> 401
+    GET /readyz                  -> {"secrets":0,"status":"ready"}
+
+  On the host:
+    healthz : {"service":"secretsd","status":"ok","version":"0.1.0"}
+    readyz  : {"secrets":2,"status":"ready"}
+
+  smoke suite: summary: 25 passed, 0 failed
+
+  live store / retrieve (sha256 comparison, values not printed):
+    PUT app/prod/db_credentials -> 201
+    PUT app/ci/live_token       -> 201
+    GET app/prod/db_credentials v2  83 bytes sha256_match=True
+    GET app/ci/live_token       v2  13 bytes sha256_match=True
+
+  policy enforcement with the ci token:
+    read allowed path       : 200
+    read outside scope      : 403
+    write with read-only    : 403
+    no token                : 401
+    bad token               : 401
+
+  at rest:
+    records: 2  [app/ci/live_token, app/prod/db_credentials]
+    plaintext canaries in vault: False
+    vault mode 0600 | audit mode 0600
+    plaintext canaries in audit: False
+    audit actions: write 14, read 22, delete 5, rotate 0
+
+  restart persistence:
+    after `docker compose restart`, GET -> 200
+
+  posture:
+    readonly=true user=10001:10001 capdrop=[ALL] pids=64 mem=128 MiB
+    cpu 0.01%, mem 19.33 MiB / 128 MiB
+    write to /etc -> Read-only file system
+  log hygiene:
+    canaries in container logs: 0
+================================================================
+```
+
+## Defect found by the live run
+
+`tests/smoke.sh` hardcoded `python`, which exists on the Windows development
+host but **not** on Ubuntu 24.04 (only `python3`). On the instance this produced
+three false failures — two `json_field` parses returned empty strings and the
+oversized-body fixture was never written, so the `413` assertion saw an empty
+body and `400`. The script now resolves `python3`/`python` once (overridable via
+`PYTHON=…`) and names the interpreter explicitly. It also fails fast with a clear
+message when neither exists.
+
+The first verification pass also caught an error in the drill script itself (a
+JSON payload sent without the `{"value": …}` envelope, correctly rejected with
+`400`), which is recorded here rather than quietly fixed in the transcript.
+
+## Cost
+
+`VM.Standard.A1.Flex` at 1 OCPU / 1 GB is within the Always Free allowance; the
+50 GB boot volume and the VCN components are free-tier eligible. The instance is
+**left running** — teardown is Stage 6 and happens only on explicit request.
+
+## Limitations
+
+- The service speaks plain HTTP on port 8200. Ingress is restricted to the
+  operator `/32` for both 22 and 8200, so the network boundary is the security
+  list, not TLS. Do not widen `api_allowed_cidr` while this remains true.
+- Reachability was verified from the allowed workstation and from the host
+  itself; it was **not** probed from a foreign network. The `/32` restriction is
+  confirmed from the applied security list, not from a failed external attempt.
+- One node, one vault file, no replication: an instance loss loses the data
+  unless the vault file and master key are backed up separately.

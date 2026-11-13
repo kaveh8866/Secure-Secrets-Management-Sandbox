@@ -15,6 +15,16 @@ BASE="${BASE:-http://127.0.0.1:8200}"
 ROOT="${SECRETSD_ROOT_TOKEN:?set SECRETSD_ROOT_TOKEN}"
 APP="${SECRETSD_APP_TOKEN:-cg_mock_app_token_change_me}"
 
+# Ubuntu images ship python3 only; a bare `python` silently produced empty
+# expects, so resolve the interpreter once and name it explicitly.
+PYTHON="${PYTHON:-}"
+if [ -z "$PYTHON" ]; then
+  if command -v python3 >/dev/null 2>&1; then PYTHON=python3
+  elif command -v python >/dev/null 2>&1; then PYTHON=python
+  else echo "error: python3 is required" >&2; exit 2
+  fi
+fi
+
 pass=0
 fail=0
 
@@ -34,7 +44,7 @@ code() {
 }
 
 json_field() {
-  python -c "import json,sys;print(json.load(sys.stdin).get('$1',''))" 2>/dev/null
+  "$PYTHON" -c "import json,sys;print(json.load(sys.stdin).get('$1',''))" 2>/dev/null
 }
 
 echo "target: $BASE"
@@ -56,7 +66,7 @@ check "PUT again (version bump)" 201 \
 version="$(curl -s -H "Authorization: Bearer $ROOT" "$BASE/v1/secrets/app/ci/smoke" | json_field version)"
 check "GET returns version 2" 2 "$version"
 
-roundtrip="$(curl -s -H "Authorization: Bearer $ROOT" "$BASE/v1/secrets/app/ci/smoke" | python -c '
+roundtrip="$(curl -s -H "Authorization: Bearer $ROOT" "$BASE/v1/secrets/app/ci/smoke" | "$PYTHON" -c '
 import json, sys
 value = json.load(sys.stdin).get("value", "")
 print("match" if value == "smoke-test-value-not-a-credential" else "mismatch")
@@ -88,7 +98,7 @@ check "rotation disabled by default" 403 \
     -d '{"new_master_key":"not-a-key"}' "$BASE/v1/rotate")"
 
 big_file="$(mktemp)"
-python - "$big_file" <<'PY'
+"$PYTHON" - "$big_file" <<'PY'
 import sys
 with open(sys.argv[1], "w", encoding="utf-8") as handle:
     handle.write('{"value":"' + "A" * 70000 + '"}')
