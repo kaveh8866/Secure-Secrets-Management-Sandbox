@@ -7,6 +7,7 @@
 ![Tests](https://img.shields.io/badge/smoke-25%2F25%20passing-brightgreen)
 ![Unit](https://img.shields.io/badge/unit-40%20tests-brightgreen)
 ![Verified on OCI](https://img.shields.io/badge/certified-OCI%20(Always%20Free)-F80000)
+![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
 
 A small, auditable secrets service: store credentials encrypted at rest, hand
 them out under scoped bearer tokens, rotate the master key without ever
@@ -392,3 +393,13 @@ Notes and caveats:
 Every claim above is backed by a transcript in [`docs/`](docs/): what ran, what
 it printed, and what remained unverified. Stages that were not executed in a
 cloud are labelled local; the OCI deployment was real, and so was its teardown.
+
+---
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Mostafa Kaveh.
+
+The code is provided as a portfolio and learning artefact: it is a sandbox
+secrets service, not a managed security product. Review it, run it, fork it —
+and replace the mock master key before it touches anything that matters.
