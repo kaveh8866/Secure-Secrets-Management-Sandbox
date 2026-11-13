@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "records": {
+    "app/ci/github_token": {
+      "version": 3,
+      "created_at": 1763000000,
+      "updated_at": 1763003600,
+      "envelope": {
+        "v": 1,
+        "alg": "AES-256-GCM",
+        "name": "app/ci/github_token",
+        "dek_wrapped": "<base64url: 32-byte data key sealed with the master key, 16-byte tag appended>",
+        "dek_nonce": "<base64url: 12 random bytes>",
+        "nonce": "<base64url: 12 random bytes>",
+        "ciphertext": "<base64url: value ciphertext, 16-byte tag appended>"
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+# =============================================================================
+# Access policies — hashes only, never tokens
+# =============================================================================
+# Each entry grants capabilities over a path prefix. The service compares the
+# SHA-256 of the presented bearer token against `sha256`, so this file can be
+# committed, reviewed in a pull request and mounted read-only without leaking
+# anything usable.
+#
+# Derive a hash:
+#   printf '%s' 'the-token' | python -m secretsd --hash-token
+#
+# The digests below belong to the documented mock tokens
+# (`cg_mock_app_token_change_me`, `cg_mock_rotator_token_change_me`). Replace
+# them before using this service for anything real — a public token hash is a
+# public token. The root token is supplied via SECRETSD_ROOT_TOKEN and is hashed
+# in memory at boot, so it never appears here.
+#
+# Path matching is segment-aware: `app/ci` covers `app/ci/github` but never
+# `app/ci-tokens`.
+
+[[tokens]]
+name = "ci-pipeline"
+sha256 = "6d67d50690b02a2d37e8c8bf43a0d1cdc43955944cae1327de94a41f7b3a79b8"
+capabilities = ["read", "list"]
+paths = ["app/ci", "shared/"]
+
+[[tokens]]
+name = "rotator"
+sha256 = "1333e1a90f678f42c1f06295121f0e1ee4c243aaa8ffb97df96244a7d3a4eaf6"
+capabilities = ["list", "rotate"]
+paths = ["*"]

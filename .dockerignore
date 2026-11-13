@@ -1,0 +1,32 @@
+# The build context is the whole repository root, so it must be filtered hard:
+# a stray .env copied into an image layer would defeat the entire project.
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.tfvars
+*.tfstate
+*.tfstate.*
+terraform/
+docs/
+tests/
+data/
+logs/
+*.log
+*.md
+!configs/**/*.json
+.terraform/
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+docker/
+.cloudguard/
+node_modules/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,86 @@
+# =============================================================================
+# Secure Secrets Management Sandbox — runtime composition
+# =============================================================================
+# Sized for a 1 OCPU / 1 GB Always Free instance (and an ARM one at that): the
+# service is capped at 128 MiB and a quarter of a core, which is roughly ten
+# times its idle footprint.
+#
+# Every hardening flag below is behavioural, not decorative:
+#   read_only            the root filesystem is immutable; only /data and /tmp
+#                        are writable, so a compromised process cannot drop a
+#                        payload into the image
+#   cap_drop: ALL        no capability remains; the service binds 8200 (>1024)
+#   no-new-privileges    setuid binaries cannot elevate, even if one appears
+#   pids_limit           thread/process bomb ceiling
+#   tmpfs /tmp           16 MiB, never persisted
+#   secrets-data         named volume, 0600 vault file, survives restarts
+#
+#   docker compose --env-file ../.env -f docker-compose.yml up -d --build
+
+name: cloudguard-secrets
+
+services:
+  secretsd:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: cloudguard/secretsd:local
+    container_name: cg-secretsd
+    restart: unless-stopped
+
+    # --- security posture ---------------------------------------------------
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+
+    # --- resource envelope --------------------------------------------------
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.25
+
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+
+    volumes:
+      # Encrypted vault + audit log only. Never bind-mount a host secrets dir.
+      - secrets-data:/data
+      # Policies are read-only input: tokens are hashes, not credentials.
+      - ../configs:/etc/secretsd:ro
+
+    environment:
+      SECRETSD_MASTER_KEY: "${SECRETSD_MASTER_KEY:?set SECRETSD_MASTER_KEY in .env}"
+      SECRETSD_ROOT_TOKEN: "${SECRETSD_ROOT_TOKEN:?set SECRETSD_ROOT_TOKEN in .env}"
+      SECRETSD_DATA_DIR: /data
+      SECRETSD_POLICY_FILE: /etc/secretsd/policies.toml
+      SECRETSD_BIND: 0.0.0.0
+      SECRETSD_PORT: "8200"
+      SECRETSD_ALLOW_API_ROTATION: ${SECRETSD_ALLOW_API_ROTATION:-false}
+      TZ: ${TZ:-UTC}
+
+    ports:
+      # Loopback by default. On an instance, publish on the private interface
+      # and keep 8200 out of the security list entirely.
+      - "${SECRETSD_BIND_ADDRESS:-127.0.0.1}:${SECRETSD_HOST_PORT:-8200}:8200"
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/healthz', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+    stop_grace_period: 10s
+
+volumes:
+  secrets-data:
+    name: cg-secretsd-data

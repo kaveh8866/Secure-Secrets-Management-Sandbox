@@ -1,0 +1,90 @@
+# =============================================================================
+# Secure Secrets Management Sandbox — Git boundary
+# =============================================================================
+# This project *stores* credentials, so the boundary is stricter than usual:
+# anything that could decrypt, unwrap or impersonate gets ignored, and the
+# CloudGuard zero-leak audit fails if such a file would be tracked.
+
+# --- Environment and secrets -------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+*.kdbx
+secrets/
+keys/
+master-key*
+rclone.conf
+credentials.json
+*service-account*.json
+application_default_credentials.json
+
+# --- Sandbox runtime state ---------------------------------------------------
+# The vault file is ciphertext, but it is still the crown jewels: never commit
+# it, never commit the audit trail either (it reveals secret *names*).
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.json_sa
+vault.json
+secrets.json
+audit.log
+*.sealed.json
+configs/local/
+
+# --- OpenTofu / Terraform ----------------------------------------------------
+.terraform/
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!terraform.tfvars.example
+crash.log
+crash.*.log
+tfplan
+*.tfplan
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Container scratch -------------------------------------------------------
+docker/docker-compose.override.yml
+docker/*.local.*
+*.pid
+*.swp
+
+# --- Logs and archives -------------------------------------------------------
+logs/
+*.log
+*.tar.gz
+*.tar
+*.zip
+*.dump
+
+# --- CloudGuard internals ----------------------------------------------------
+.cloudguard/
+
+# --- OS / editor noise -------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.code-workspace
+node_modules/
+dist/

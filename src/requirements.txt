@@ -1,0 +1,8 @@
+# =============================================================================
+# Secure Secrets Management Sandbox — runtime dependencies
+# =============================================================================
+# One dependency, pinned exactly. Everything else comes from the standard
+# library (http.server, tomllib, hmac, json), which keeps the image small and
+# the supply chain short — deliberately, because this is the component that
+# holds the credentials.
+cryptography==50.0.2

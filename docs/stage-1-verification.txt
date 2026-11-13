@@ -1,0 +1,83 @@
+STAGE 1 VERIFICATION — Secure Secrets Management Sandbox
+recorded 2026-11-13
+
+Environment
+  host        Windows 11 / Docker 29.8.1, compose 5.5.1, x86_64
+  base image  python:3.12-slim
+  image size  199MB
+  runtime     uid 10001, read-only rootfs, cap_drop ALL, 128 MiB / 0.25 CPU
+
+1. Compose syntax
+   $ docker compose --env-file .env -f docker/docker-compose.yml config --quiet
+   exit 0 (valid)
+   First attempt failed: unquoted ${VAR:?message} scalars broke YAML at L55.
+   Fixed by quoting both required-variable interpolations.
+
+2. Unit tests (inside the built image, stdlib unittest)
+   $ docker run --rm -e PYTHONPATH=/app -v <tests>:/tests:ro        --entrypoint python cloudguard/secretsd:local        -m unittest discover -s /tests -t /tests
+   Ran 35 tests in 0.040s — OK
+   Covers: round-trip, tamper detection, per-seal nonces, name binding,
+   rotation semantics, wrong-key rejection, atomic persistence, 0600 modes,
+   audit-log value hygiene, policy parsing and segment-aware matching.
+
+3. Image build
+   $ docker build -t cloudguard/secretsd:local .
+   exit 0
+
+4. HTTP smoke test (tests/smoke.sh, 19 assertions)
+   $ SECRETSD_ROOT_TOKEN=... SECRETSD_APP_TOKEN=... bash tests/smoke.sh
+   summary: 19 passed, 0 failed (exit 0)
+
+   probes
+     GET /healthz                              200
+     GET /readyz                               200
+     GET /v1/secrets without token             401
+     GET /v1/secrets with bad token            401
+     GET /v1/secrets with app token            200
+   write / read
+     PUT app/ci/smoke (root)                   201
+     PUT again (version bump)                  201
+     GET returns version 2                       2
+     value round-trips exactly                match
+   policy scoping (app token: read+list on app/ci)
+     GET app/ci/smoke                          200
+     GET app/admin/root                        403
+     PUT app/ci/other                          403
+     GET app/ci-tokens/x                       403  (segment-aware prefix)
+   protocol edges
+     POST /v1/secrets                          405
+     unknown secret                            404
+     rotation disabled by default              403
+     oversized body (70 KB)                    413
+     DELETE with root                          200
+     deleted secret is gone                    404
+
+5. Container posture (read back, not assumed)
+   readonly=true user=10001:10001 capdrop=[ALL] pids=64 mem=134217728
+   $ docker exec cg-secretsd id
+   uid=10001(secretsd) gid=10001(secretsd) groups=10001(secretsd)
+   $ docker exec cg-secretsd touch /etc/probe
+   touch: cannot touch '/etc/probe': Read-only file system
+   $ docker exec cg-secretsd stat -c '%a %U:%G' /data/secrets.json
+   600 secretsd:secretsd
+
+6. Ciphertext at rest and log hygiene
+   PUT app/demo/canary {"value":"CANARY-do-not-commit-9f3a"}
+   record: app/demo/canary v 1
+   plaintext anywhere in vault: False
+   envelope keys: ['alg', 'ciphertext', 'dek_nonce', 'dek_wrapped', 'name', 'nonce', 'v']
+   ciphertext len: 55
+   audit rows: 13
+   plaintext anywhere in audit: False
+
+7. Resources and resilience
+   docker stats --no-stream: mem=20.46MiB / 128MiB, cpu=0.02%, pids=1
+   restart: GET /v1/status -> 200, secret still readable (volume persists)
+
+Known limitations at Stage 1 (by design, not defects)
+  * mock master key and tokens from .env.example; replace before any real use
+  * no TLS; the API is meant to be reached over SSH or inside the VCN
+  * no live cloud deployment yet — Stage 2 provisions OCI, Stage 5 verifies it
+  * single node, single vault file, no HA and no rollback detection
+  * Windows Git Bash mangles container paths (touch /etc/probe); rerun posture
+    checks with MSYS_NO_PATHCONV=1
